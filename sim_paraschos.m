@@ -2,16 +2,12 @@ clear all; clc;
 
 %%
 addpath(genpath('./functions'))
-addpath(genpath('C:\Users\mojo\OneDrive\GitHub\ProMPLib'))
 
-%%
-load pp2ProMP.mat
-promp = pp2ProMP;
-
+%% User input
 dt = 0.001;
-
 tmp1 = load('controlGains_X-tremeFinal.mat');
 
+%%
 t_end = length(tmp1.q_mean)*dt;
 q_0 = tmp1.q_mean(1,:);
 
@@ -43,11 +39,10 @@ epsilon_u.signals.dimensions = 7;
 clear tmp1 tmp2
 %%
 
-disp('sim..')
-string(datetime('now'))
+disp(strcat('starting at ',{' '}, string(datetime('now'))))
 t_start = tic;
 simOut = sim('iiwa_paraschos','SimulationMode','normal','StopTime',string(t_end));
 toc(t_start)
-string(datetime('now'))
+disp(strcat('ending at ',{' '}, string(datetime('now'))))
 
 disp('done')
