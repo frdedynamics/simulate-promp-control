@@ -1,8 +1,5 @@
 clear all; clc;
 
-%%
-addpath(genpath('./functions'))
-
 %% User input
 dt = 0.001;
 tmp1 = load('controlGains_X-tremeFinal.mat');

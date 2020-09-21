@@ -1,7 +1,4 @@
 
-% Paths
-addpath(genpath('../functions'))
-
 %% Check for ProMP existense
 assert(exist('ProMP.m','file') == 2, 'ProMP.m file does not exist')
 
