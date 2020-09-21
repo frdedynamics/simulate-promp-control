@@ -43,6 +43,14 @@ disp(strcat('starting at ',{' '}, string(datetime('now'))))
 t_start = tic;
 simOut = sim('iiwa_paraschos','SimulationMode','normal','StopTime',string(t_end));
 toc(t_start)
+t_final = toc(t_start);
+if t_final > 120
+    disp('computer so slooooooooow...')
+end
 disp(strcat('ending at ',{' '}, string(datetime('now'))))
 
 disp('done')
+
+%%
+simOut.plot
+
