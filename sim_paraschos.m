@@ -43,6 +43,8 @@ toc(t_start)
 t_final = toc(t_start);
 if t_final > 120
     disp('computer so slooooooooow...')
+else
+    disp('you so fast, really fast.')
 end
 disp(strcat('ending at ',{' '}, string(datetime('now'))))
 
