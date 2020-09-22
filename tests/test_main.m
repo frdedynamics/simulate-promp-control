@@ -11,7 +11,13 @@ RETVAL_EXIST.IS_A_P_CODE_FILE = 6;
 RETVAL_EXIST.IS_A_FOLDER = 7;
 RETVAL_EXIST.IS_A_CLASS = 8;
 
-%% Check for ProMP existense
+%% Check for iiwa14_loadMesh.m existence
+ERRID = 'MOJO:AssertionFailed:notExist';
+ERRMSG = 'iiwa14_loadMesh.m file does not exist. Did you open the project?';
+EXPRESSION = exist('iiwa14_loadMesh.m','file') == RETVAL_EXIST.IS_A_FILE;
+assert(EXPRESSION, ERRID, ERRMSG)
+
+%% Check for ProMP existence
 ERRID = 'MOJO:AssertionFailed:notExist';
 ERRMSG = 'ProMP.m file does not exist. Did you open the project?';
 EXPRESSION = exist('ProMP.m','file') == RETVAL_EXIST.IS_A_FILE;
