@@ -19,7 +19,9 @@ classdef ProMP %< handle
         Bf_dotBlockDiag_tvec
         BasisFcns_dotdot
         Bf_dotdotBlockDiag_full
-        Bf_dotdotBlockDiag_tvec        
+        Bf_dotdotBlockDiag_tvec   
+        Bf_and_Bf_dotBlockDiag_tvec
+        Bf_dot_and_Bf_dotdotBlockDiag_tvec
         NrBasisFcns = 10 % default 10 %set the SetAccess as immutable such that it can only be set in the constructor
         NrDOF
         NrDemos
@@ -54,36 +56,39 @@ classdef ProMP %< handle
         
         function promp = addData(promp, newData, trainNow)
             %ADD DATA: add new demonstration to the ProMP
-            newData.q = newData.q(:,1:promp.NrDOF);
-            if numel(promp.Data) == 0 % Handling the first demo
+            %TODO: Align demos in time by Dynamic time Warping if neccessary
+
+            %% make sure new data is a MPData object:
+            newData = MPData(newData.Time, newData.q); 
+            
+            %% Resample all demos if desired
+            resample = false; %true            
+            if resample
+                resampled_NrTimesteps = 250;
+                resampled_duration = 1; %seconds
+                q_adjustedLength = interp1(linspace(0,1,length(newData.q)), newData.q, linspace(0,1,resampled_NrTimesteps)');
+                Time_adjustedLength = linspace(0, resampled_duration, resampled_NrTimesteps)';
+                newData = MPData(Time_adjustedLength, q_adjustedLength);
+            end
+            
+            %% Handling the first demo:
+            if numel(promp.Data) == 0 
                 promp.Data(1) = newData; %add first dataset
                 promp.NrDemos = size(promp.Data,2);
-                promp = generatePhase(promp); % generate Phase signal according to length of first demo
-                promp.NrTimesteps = length(promp.Phase);
-%                 if isempty(promp.NrDOF)
-%                     promp.NrDOF = size(promp.Data(end).q, 2); % Determine NR of DOFs from Data
-%                 end
-                promp = generateBasisFcns(promp);
+                promp = adjustOutputPhase(promp, 0.01, 1); % generate Phase signal according to default values dt=0.01 seconds and duration 1 seconds
+
                 promp.CovY = eye(promp.NrDOF); % define dimensions of CovY matrix and initialize with identity matrix
                 promp.Variance = eye(promp.NrDOF * promp.NrBasisFcns);
                 promp.Mean = zeros(promp.NrBasisFcns, promp.NrDOF);
-            else %Handling all subsequent demos
-                %Adjust the number of Time steps of the new demo if they differ from the
-                %first demo.
-                if length(newData.q) == promp.NrTimesteps
-                    q_adjustedLength = newData.q;
-                    Time_adjustedLength = newData.Time(end);
-                else
-                    q_adjustedLength = interp1(linspace(0,1,length(newData.q)), newData.q, promp.Phase');
-                    Time_adjustedLength = linspace(0, newData.Time(end), length(promp.Phase))';
-                end
-                newData_adjustedLength = MPData(Time_adjustedLength, q_adjustedLength);
-                 %TODO: Align demos in time by Dynamic time Warping if neccessary
-                promp.Data = [promp.Data newData_adjustedLength];
+            else
+            %% Handling all subsequent demos:       
+                promp.Data = [promp.Data newData];  %add new data set    
+
+                % Update NrOfDemos property
                 promp.NrDemos = size(promp.Data,2);
             end
             
-            %Handle training method input
+            %% Handle training method input
             if nargin < 3 
                 trainNow = 'trainBat'; %set default value
             end
@@ -96,7 +101,21 @@ classdef ProMP %< handle
             end
             
         end
-                       
+        
+        function promp = adjustOutputPhase(promp, dt, duration)
+            % Generate phase signal with desired output dt and duration
+
+            NrTimesteps = (1/dt) * duration;
+            promp.Phase = linspace(0, duration, NrTimesteps);
+            
+            
+            %Update Nr of Timesteps
+            promp.NrTimesteps = NrTimesteps;
+            
+            %Update the BasisFunctions to match the desired output phase
+            promp = generateOutputBasisFcns(promp, promp.Phase);
+        end
+                   
         function qdot_prior = generateQdotPrior(promp)
             % Idea: abs(diff(bf) * promp.Weights(1).Weights) % where bf is a
             % basisfunction matrix with as many timesteps as there are
@@ -106,24 +125,18 @@ classdef ProMP %< handle
             for i=1:promp.NrDOF
                 firstDemoWeights_acc(:,i) = (promp.BasisFcns'*promp.BasisFcns + lambda*eye(size(promp.BasisFcns'*promp.BasisFcns,1)))\promp.BasisFcns'*[0;0; diff(promp.Data(end).q(:,i),2)];
             end  
-            
-%             BasisFcns_velocity = gaussianBasisFcns(promp.NrBasisFcns/5, promp.NrTimesteps, (promp.NrTimesteps/(promp.NrBasisFcns/5))^2);
-%             for i=1:promp.NrDOF
-%                 firstDemoWeights(:,i) = (BasisFcns_velocity'*BasisFcns_velocity + lambda*eye(size(BasisFcns_velocity'*BasisFcns_velocity,1)))\BasisFcns_velocity'*promp.Data(end).q(:,i);
-%             end 
-            
+                        
             for i=1:promp.NrDOF
                 firstDemoWeights(:,i) = (promp.BasisFcns'*promp.BasisFcns + lambda*eye(size(promp.BasisFcns'*promp.BasisFcns,1)))\promp.BasisFcns'*promp.Data(end).q(:,i);
             end            
             
             N = promp.NrBasisFcns; %   N = number of basis functions
-            T = promp.NrBasisFcns;%promp.NrTimesteps; %+ 1; 
+            T = promp.NrBasisFcns; %+ 1; 
             h = 0.5*(T/(N-1))^2; % h = 0.5*(c_{i+1} - c{i})^2, also found in Rückert Probabilistic Machine Learning
             
             weight_size_Bf = gaussianBasisFcns(N, T, h); % scale the basis function matrix down from NrOfTimesteps length to NrofWeights length
             weight_size_Bf_dot = gradient(weight_size_Bf', 1/T)';%[zeros(1,N); diff(weight_size_Bf)];
             weight_size_Bf_dot_dot = gradient(weight_size_Bf_dot', 1/T)'; %[zeros(1,N); diff(weight_size_Bf_dot)];
-%             weight_size_Bf_dot_dot = weight_size_Bf_dot_dot(round(linspace(1,promp.NrTimesteps,promp.NrBasisFcns)),:); % for the case when T=T and not T=N
             %qdot_weight_size = abs(weight_size_Bf * firstDemoWeights_acc);
             qdot_weight_size = abs(weight_size_Bf_dot * firstDemoWeights);
             %qdot_weight_size = abs(weight_size_Bf_dot_dot * firstDemoWeights); %*0.005
@@ -194,8 +207,9 @@ classdef ProMP %< handle
             % margingal distribution of p(y) in lin gauss system y=Ax+b.
             % See Murphy Equation 4.126            
             % Generate Variance trajectories
+            cov_trajectory = zeros(promp.NrDOF, promp.NrDOF, promp.NrTimesteps);
             for t=1:promp.NrTimesteps
-                cov_trajectory(:,:,t) = promp.CovY + promp.BfBlockDiag_tvec(:,:,t)*promp.Variance*promp.BfBlockDiag_tvec(:,:,t)';
+                cov_trajectory(:,:,t) = promp.CovY + promp.BfBlockDiag_tvec(:,:,t)*promp.Variance*promp.BfBlockDiag_tvec(:,:,t)'; % promp.CovY + 
             end
             
             % Plot
@@ -205,7 +219,7 @@ classdef ProMP %< handle
                 set(MeanVarFig,'units','normalized','outerposition',[0 0 0.28 1]);
                 for k = 1:promp.NrDOF
                     figure(MeanVarFig)
-                    q_var(:,k) = cov_trajectory(k,k,:); %for saving the data
+                    %q_var(:,k) = cov_trajectory(k,k,:); %for saving the data
                     subplot(promp.NrDOF, 1, k)
                     s=shadedErrorBar(promp.Phase, mean_trajectory(:,k), 2*sqrt(cov_trajectory(k,k,:)));
                     s.patch.FaceColor = cmap(k,:);
@@ -220,7 +234,7 @@ classdef ProMP %< handle
             elseif strcmpi(subplotDOFs, 'SinglePlot')
                 figure(MeanVarFig); hold on;
                 for k = 1:promp.NrDOF                    
-                    q_var(:,k) = cov_trajectory(k,k,:); %for saving the data                    
+                    %q_var(:,k) = cov_trajectory(k,k,:); %for saving the data                    
                     s=shadedErrorBar(promp.Phase, mean_trajectory(:,k), 2*sqrt(cov_trajectory(k,k,:)));
                     s.patch.FaceColor = cmap(k,:);
                     s.mainLine.Color = cmap(k,:);
@@ -249,7 +263,7 @@ classdef ProMP %< handle
             % See Murphy Equation 4.126            
             % Generate Variance trajectories
             for t=1:promp.NrTimesteps
-                cov_trajectory_dot(:,:,t) = promp.CovY + promp.Bf_dotBlockDiag_tvec(:,:,t)*promp.Variance*promp.Bf_dotBlockDiag_tvec(:,:,t)';
+                cov_trajectory_dot(:,:,t) = promp.Bf_dotBlockDiag_tvec(:,:,t)*promp.Variance*promp.Bf_dotBlockDiag_tvec(:,:,t)';
             end
             
             % Plot
@@ -303,7 +317,7 @@ classdef ProMP %< handle
             % See Murphy Equation 4.126            
             % Generate Variance trajectories
             for t=1:promp.NrTimesteps
-                cov_trajectory_dotdot(:,:,t) = promp.CovY + promp.Bf_dotdotBlockDiag_tvec(:,:,t)*promp.Variance*promp.Bf_dotdotBlockDiag_tvec(:,:,t)';
+                cov_trajectory_dotdot(:,:,t) = promp.Bf_dotdotBlockDiag_tvec(:,:,t)*promp.Variance*promp.Bf_dotdotBlockDiag_tvec(:,:,t)';
             end
             
             % Plot
@@ -373,9 +387,8 @@ classdef ProMP %< handle
         end
         
         function plot3TaskSpaceMeanVarTraj(promp)
-%             robot = loadrobot('kukaIiwa14', 'DataFormat', 'row'); % 'kukaIiwa14' % 'universalUR5' % 'frankaEmikaPanda'
-            robot = importrobot('iiwa14.urdf');
-            robot.DataFormat = 'row';
+            robot = loadrobot('kukaIiwa14', 'DataFormat', 'row'); % 'kukaIiwa14' % 'universalUR5' % 'frankaEmikaPanda'
+            
             % Joint-Space mean trajectory
             mean_trajectory = promp.BasisFcns * promp.Mean;            
             
@@ -408,17 +421,17 @@ classdef ProMP %< handle
             end
             
             % Plot
-            figure('units','normalized','outerposition',[0 0 0.5 1]);
-            grid on; hold on;
+            set(gcf,'units','normalized','outerposition',[0 0 0.5 1]);
             view(3);
             %axis([ -0.4 0.4 -0.7 -0.3 0.2 0.8])
-            axis image
             
             %1) plot coordinate frames to visualize orientations
             NrFramesToPlot = promp.NrTimesteps / ((8e-10)*promp.NrTimesteps^3 + 18);
             frame_idx = round(linspace(1, promp.NrTimesteps, NrFramesToPlot));
             plotTransforms(mean_trajectory_translation_ts(frame_idx,:), mean_trajectory_quat_ts(frame_idx,:), 'FrameSize',0.1);
-
+            hold on
+            grid on
+            
             %2) plot mean in 3D
             plot3(mean_trajectory_translation_ts(:,1),mean_trajectory_translation_ts(:,2),mean_trajectory_translation_ts(:,3), 'k', 'LineWidth', 1.5);
             
@@ -426,7 +439,9 @@ classdef ProMP %< handle
             NrRowsToPlot = promp.NrTimesteps / ((1e-10)*promp.NrTimesteps^3 + 1);
             row_idx = round(linspace(1,promp.NrTimesteps,NrRowsToPlot));
             tubeplot_r3(mean_trajectory_translation_ts(row_idx,1),mean_trajectory_translation_ts(row_idx,2),mean_trajectory_translation_ts(row_idx,3),2*sqrt(q_var(row_idx,:)),2*sqrt(mean(q_var(row_idx,:),2)),30, [1 1 1]);            
-
+            axis image
+            hold off
+            
             % Fancy lighting
             camlight
             lighting gouraud
@@ -466,8 +481,9 @@ classdef ProMP %< handle
 %                 end
 
             %% Matlab Robotics Systems toolbox
-            %figure
+            figure;
             plot3TaskSpaceMeanVarTraj(promp)
+            hold on
             robot = importrobot('iiwa14.urdf');
             robot.DataFormat = 'row';
             show(robot, 'PreservePlot',false,'Frames', 'off');
@@ -502,6 +518,70 @@ classdef ProMP %< handle
             end
         end
         
+        function [q_mean, q_var, q_covar] = computeMeanVarTraj(promp)
+            q_mean = promp.BasisFcns * promp.Mean;
+            q_mean_dot = promp.BasisFcns_dot * promp.Mean;
+            q_mean_dotdot = promp.BasisFcns_dotdot * promp.Mean;
+                                        
+            % Generate Variance trajectories
+            q_covar = zeros(promp.NrDOF, promp.NrDOF, promp.NrTimesteps);
+            q_var = zeros(promp.NrTimesteps, promp.NrDOF);
+            for t=1:promp.NrTimesteps
+                q_covar(:,:,t) = promp.CovY + promp.BfBlockDiag_tvec(:,:,t)*promp.Variance*promp.BfBlockDiag_tvec(:,:,t)'; % promp.CovY +
+                q_var(t,:) = diag(q_covar(:,:,t));
+            end          
+            
+        end
+          
+        function [k, K, epsilon_u] = computeControlGains(promp)
+            A = blockDiagMat(promp.NrDOF, [0 1; 0 0]);
+            B = blockDiagMat(promp.NrDOF, [0; 1]);
+            c = zeros(promp.NrDOF*2, 1);
+                       
+            Sigma_w = promp.Variance;
+            mu_w = promp.Mean(:);            
+            
+            for t = 1:promp.NrTimesteps-1
+                % time step dependent stuff:
+                
+                % BasisFcns
+                Psi_t = promp.Bf_and_Bf_dotBlockDiag_tvec(:,:,t);
+                Psi_tplusdt = promp.Bf_and_Bf_dotBlockDiag_tvec(:,:,t+1);
+                
+                % variance for timestep t
+                Sigma_t = Psi_t * Sigma_w * Psi_t';
+                Sigma_tplusdt = Psi_tplusdt * Sigma_w * Psi_tplusdt';
+                
+                %% Control Noise
+                C_t = Psi_t * Sigma_w * Psi_tplusdt';
+                Sigma_s(:,:,t) = (Sigma_tplusdt - (C_t' * (Sigma_t \ C_t)))./ (promp.Phase(t+1)-promp.Phase(t));
+                Sigma_s(:,:,t) = (Sigma_s(:,:,t) + Sigma_s(:,:,t)') * 0.5 +  eye(size(Sigma_s(:,:,t)))*1e-12;
+                Sigma_u(:,:,t) = B \ (Sigma_s(:,:,t)) / B'; 
+                Sigma_u(:,:,t) = (Sigma_u(:,:,t) + Sigma_u(:,:,t)') * 0.5;
+                epsilon_u(:,t) = mvnrnd(zeros(promp.NrDOF,1), Sigma_u(:,:,t)./(promp.Phase(t+1)-promp.Phase(t)));
+            end
+            
+            for t = 1:promp.NrTimesteps-1
+                % time step dependent stuff:
+                
+                % BasisFcns
+                Psi_dot_t = promp.Bf_dot_and_Bf_dotdotBlockDiag_tvec(:,:,t);
+                Psi_t = promp.Bf_and_Bf_dotBlockDiag_tvec(:,:,t);
+                
+                % variance for timestep t
+                Sigma_t = Psi_t * Sigma_w * Psi_t';
+                
+                %% Feedback gain matrix
+                K(:,:,t) = B \ (Psi_dot_t * Sigma_w * Psi_t' - A * Sigma_t - 0.5 * Sigma_s(:,:,t)) / Sigma_t;
+                
+                %     disp('K: '); disp(K);
+                
+                %% Feedforward gains
+                k(:,t) = B \ (Psi_dot_t * mu_w - (A + B*K(:,:,t)) * Psi_t * mu_w - c);
+                %     disp('k: '); disp(k);
+            end
+        end
+        
         function sampledDemos = sampleDemosFromProMP(promp, NrSamples)
             % Samples a Demonstration from the Trajectory Distribution
             % encoded a ProMP
@@ -531,46 +611,45 @@ classdef ProMP %< handle
     end
     
     %% Private Methods
-    methods ( Access = private )
-        function promp = updateWeights(promp)
-            %UPDATE WEIGHTS: compute the weights of the latest demo 
-            lambda = 10e-12; %ridge regression regularization
-            wvec = MPWeights; %wvec is a MPWeights object. (NRofWeights, NRofJoints)
-            for i=1:promp.NrDOF
-                wvec.Weights(:,i) = (promp.BasisFcns'*promp.BasisFcns + lambda*eye(size(promp.BasisFcns'*promp.BasisFcns,1)))\promp.BasisFcns'*promp.Data(end).q(:,i);
-                % TODO: save the inverted basis function matrix once for
-                % each ProMP and save computation time
-            end
-            promp.Weights = [promp.Weights wvec];
-        end   
+    methods ( Access = private ) 
         
-        function promp = generatePhase(promp)
-            %Generate Phase signal: a normalized time vector from 0 to 1
-            %with as many timesteps as the first added demo
-            promp.Phase = linspace(0,1,length(promp.Data(1).q));
-        end
-        
-        function promp = generateBasisFcns(promp)
-            %% Generate a vector of evenly, overlapping spaced gaussian basis functions                     
-            N = promp.NrBasisFcns; %   N = number of basis functions
-            T = length(promp.Data(end).Time); %   T = number of timesteps
-            h = 0.5*(T/(N-1))^2; % h = 0.5*(c_{i+1} - c{i})^2, also found in Rückert Probabilistic Machine Learning
-            promp.BasisFcns = gaussianBasisFcns(N, T, h); %call the function to create normalized gaussian basis functions
-            promp.BasisFcns_dot = gradient(promp.BasisFcns', 1/promp.NrTimesteps)';
-            promp.BasisFcns_dotdot = gradient(promp.BasisFcns_dot', 1/promp.NrTimesteps)';
-
-            %% Create Blockdiagonal Basisfunction matrix (full) and Blockdiagonal Basisfunction matrix with timesteps in third dimension.
-            NrOfBlocks = promp.NrDOF;
-            promp.BfBlockDiag_full = blockDiagMat(promp.NrDOF, promp.BasisFcns);
+        function promp = generateOutputBasisFcns(promp, output_time_vector)
+            % GENERATE OUTPUT BASIS FUNCTIONS: generates the basis function matrices used for generating mean-variance trajectories,
+            % plotting, sampling and computing controller gains.       
+                        
+            BfStruct = generateBasisFcns(promp.NrBasisFcns, promp.NrDOF, output_time_vector);
+            
+            promp.BasisFcns = BfStruct.BasisFcns;
+            promp.BfBlockDiag_full = BfStruct.BfBlockDiag_full;
+            promp.BfBlockDiag_tvec = BfStruct.BfBlockDiag_tvec;
+            BasisFcns_unnormalized = BfStruct.BasisFcns_unnormalized;
+            z_dot = BfStruct.z_dot;
+            
+            %% Derivatives of BasisFcns
+            promp.BasisFcns_dot = gradient(promp.BasisFcns', promp.Phase, ones(length(promp.NrBasisFcns),1))'; %* z_dot; %*z_dot not needed here ?! since time not phase dependent?!
+            promp.BasisFcns_dotdot = gradient(promp.BasisFcns_dot', promp.Phase, ones(length(promp.NrBasisFcns),1))';
+            
             promp.Bf_dotBlockDiag_full = blockDiagMat(promp.NrDOF, promp.BasisFcns_dot);
             promp.Bf_dotdotBlockDiag_full = blockDiagMat(promp.NrDOF, promp.BasisFcns_dotdot);
-            for t=1:promp.NrTimesteps
-                promp.BfBlockDiag_tvec(:,:,t) = promp.BfBlockDiag_full(t+(0:promp.NrTimesteps:promp.NrTimesteps*NrOfBlocks-1),:);
-                promp.Bf_dotBlockDiag_tvec(:,:,t) = promp.Bf_dotBlockDiag_full(t+(0:promp.NrTimesteps:promp.NrTimesteps*NrOfBlocks-1),:);                
-                promp.Bf_dotdotBlockDiag_tvec(:,:,t) = promp.Bf_dotdotBlockDiag_full(t+(0:promp.NrTimesteps:promp.NrTimesteps*NrOfBlocks-1),:);                            
+            
+            promp.Bf_dotBlockDiag_tvec = zeros(promp.NrDOF, promp.NrDOF*promp.NrBasisFcns, length(output_time_vector));
+            promp.Bf_dotdotBlockDiag_tvec = zeros(promp.NrDOF, promp.NrDOF*promp.NrBasisFcns, length(output_time_vector));
+            for t = 1:length(output_time_vector)
+                promp.Bf_dotBlockDiag_tvec(:,:,t) = blockDiagMat(promp.NrDOF, promp.BasisFcns_dot(t,:));
+                promp.Bf_dotdotBlockDiag_tvec(:,:,t) = blockDiagMat(promp.NrDOF, promp.BasisFcns_dotdot(t,:));                
+                
+                % Basis function matrix containing Bf and Bf_dot. This for
+                % is needed to compute the control gains of the stochstic
+                % feedback controller in paraschos
+                promp.Bf_and_Bf_dotBlockDiag_tvec(:,:,t) = blockDiagMat(promp.NrDOF, [promp.BasisFcns(t,:); promp.BasisFcns_dot(t,:)]);
+                promp.Bf_dot_and_Bf_dotdotBlockDiag_tvec(:,:,t) = blockDiagMat(promp.NrDOF, [promp.BasisFcns_dot(t,:); promp.BasisFcns_dotdot(t,:)]);
             end
-        end 
+            
+        end
+        
     end   
 end
+
+
 
 
