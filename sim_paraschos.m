@@ -1,4 +1,5 @@
 clear all; clc;
+addpath('Data');
 
 %% User input
 dt = 0.001;
