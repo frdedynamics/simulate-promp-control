@@ -1,9 +1,8 @@
 clear all; clc;
-addpath('Data');
 
 %% User input
 dt = 0.001;
-controlGainsFilename = 'controlGains_X-tremeFinal.mat';
+controlGainsFilename = './Data/controlGains_X-tremeFinal.mat';
 iiwaUrdfPath = './iiwa_description/urdf/iiwa14.urdf';
 
 %% Init sim
