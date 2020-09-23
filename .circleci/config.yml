@@ -10,5 +10,5 @@ jobs:
       - store_test_results:
           path: test-results
 orbs:
-  matlab: mathworks/matlab@x.y
+  matlab: mathworks/matlab@0.2.0
 version: 2.1
