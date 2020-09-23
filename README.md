@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.com/frdedynamics/simulate-promp-control.svg?branch=master)](https://travis-ci.com/frdedynamics/simulate-promp-control)
+[![Build Status](https://travis-ci.com/frdedynamics/simulate-promp-control.svg?branch=master)](https://travis-ci.com/frdedynamics/simulate-promp-control) [![CircleCI](https://circleci.com/gh/frdedynamics/simulate-promp-control.svg?style=svg)](https://circleci.com/gh/frdedynamics/simulate-promp-control)
 # simulate-promp-control
 
 WIP
