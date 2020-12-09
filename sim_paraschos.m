@@ -1,5 +1,20 @@
 clear all; clc;
 
+try
+    proj = currentProject();
+catch ME
+    if strcmp(ME.identifier, 'MATLAB:project:api:NoProjectCurrentlyLoaded')
+        disp('opening project..')
+        proj = openProject('Simulateprompcontrol.prj');
+    end
+end
+
+if ~strcmp(currentProject().Name,'simulate-promp-control')
+    ERRID = 'MOJO:AssertionFailed:wrongProject';
+    ERRMSG = 'simulate-promp-control project not found.';
+    throw(MException(ERRID, ERRMSG))
+end
+
 %% User input
 dt = 0.001;
 controlGainsFilename = './Data/controlGains_X-tremeFinal.mat';
